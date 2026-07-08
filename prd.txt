@@ -1,0 +1,203 @@
+Project Requirement Document
+AI WhatsApp Executive Assistant
+Assigned To: Data Science Intern(s)
+Project Duration: 4 Days
+Assigned Date: Wednesday, 8 July 2026
+Submission Deadline: Sunday, 12 July 2026 (11:59 PM)
+________________________________________
+1. Project Objective
+Develop an AI-powered WhatsApp Executive Assistant that acts as a personal business assistant. The assistant should intelligently respond to WhatsApp messages, answer business-related queries, maintain conversation history, schedule meetings, and assist with daily tasks using Large Language Models (LLMs).
+The goal is to automate routine conversations while providing accurate, professional, and context-aware responses.
+________________________________________
+2. Project Scope
+The AI Assistant should be capable of:
+●	Receiving and responding to WhatsApp messages.
+●	Answering questions about Positiveway Solutions.
+●	Maintaining conversation context.
+●	Scheduling meetings.
+●	Answering internship-related queries.
+●	Storing conversation history.
+●	Managing a customizable business knowledge base.
+●	Assisting the admin with daily business operations.
+________________________________________
+3. Functional Requirements
+A. WhatsApp Integration
+The application should:
+●	Receive WhatsApp messages.
+●	Send AI-generated replies.
+●	Support continuous conversations.
+●	Handle multiple users independently.
+Preferred Free Options
+●	Meta WhatsApp Cloud API (Free Test Environment)
+●	Twilio WhatsApp Sandbox (Free)
+●	WhatsApp Web Automation (Learning Purposes Only)
+________________________________________
+B. AI Conversation Engine
+The assistant should:
+●	Understand user intent.
+●	Generate professional and natural responses.
+●	Maintain conversation context.
+●	Handle follow-up questions.
+●	Provide accurate information based on available knowledge.
+Preferred Free AI APIs / Models
+●	Google Gemini API (Free Tier)
+●	Groq API (Free Tier)
+●	OpenRouter (Free Models)
+●	Ollama (Run Models Locally)
+________________________________________
+C. Business Knowledge Base
+The assistant should answer questions related to:
+●	Company Introduction
+●	Services Offered
+●	Website Development
+●	AI Solutions
+●	Graphic Design
+●	Branding
+●	Internship Program
+●	Contact Information
+●	Company Portfolio
+●	Frequently Asked Questions (FAQs)
+Knowledge should be stored in:
+●	JSON
+●	Markdown (.md)
+●	TXT Files
+●	SQLite Database
+The knowledge base should be easy to update without changing the application code.
+________________________________________
+D. Meeting Scheduler
+The assistant should:
+●	Allow users to request meetings.
+●	Ask for:
+○	Name
+○	Preferred Date
+○	Preferred Time
+○	Purpose of Meeting
+●	Store meeting requests.
+●	Allow the admin to review scheduled requests.
+________________________________________
+E. Internship Assistant
+If someone asks about internships, the assistant should:
+●	Explain available internship opportunities.
+●	Share the application process.
+●	Inform users how to submit their resume.
+●	Answer common internship-related questions.
+________________________________________
+F. Conversation Management
+The assistant should:
+●	Store conversation history.
+●	Maintain context during ongoing chats.
+●	Remember previous messages within the same conversation.
+●	Allow searching previous conversations.
+Store:
+●	User Number
+●	User Message
+●	AI Response
+●	Date & Time
+________________________________________
+G. Admin Features
+The assistant should provide an admin interface or commands to:
+●	View conversation history.
+●	Search conversations.
+●	View meeting requests.
+●	Manage the knowledge base.
+●	Export conversation logs.
+●	Monitor AI activity.
+________________________________________
+4. Recommended Technology Stack
+Programming Language
+●	Python
+Backend Framework
+●	FastAPI (Preferred)
+●	Flask
+Database
+●	SQLite
+AI Models / APIs
+●	Google Gemini API
+●	Groq API
+●	OpenRouter
+●	Ollama
+WhatsApp Integration
+●	Meta WhatsApp Cloud API
+●	Twilio WhatsApp Sandbox
+Version Control
+●	Git
+●	GitHub
+________________________________________
+5. Project Workflow
+1.	User sends a WhatsApp message.
+2.	Backend receives the message.
+3.	AI processes the request.
+4.	Knowledge Base is searched (if required).
+5.	AI generates an appropriate response.
+6.	Conversation is stored.
+7.	Response is sent back to the user.
+8.	Meeting requests (if any) are saved.
+9.	Admin can review conversations and meeting requests.
+________________________________________
+6. Suggested Folder Structure
+AI-WhatsApp-Assistant/
+│
+├── app/
+├── chatbot/
+├── database/
+├── knowledge_base/
+├── logs/
+├── models/
+├── static/
+├── templates/
+├── config/
+├── requirements.txt
+├── README.md
+└── main.py
+
+________________________________________
+7. Deliverables
+Each intern must submit:
+●	Complete Source Code
+●	GitHub Repository
+●	Project Documentation (PDF)
+●	README.md with setup instructions
+●	Requirements.txt
+●	Demo Video (3–5 Minutes)
+●	Working Application (Local or Deployed)
+________________________________________
+8. Bonus Features (Optional)
+Additional credit will be given for implementing any of the following:
+●	Multi-language Support
+●	Voice Message Transcription
+●	Voice Response (Text-to-Speech)
+●	PDF Question Answering
+●	Website Knowledge Base Integration
+●	AI Memory Across Conversations
+●	Calendar Integration
+●	Human Handoff Option
+●	Admin Dashboard
+●	Daily Conversation Summary
+●	Custom Admin Commands
+●	Email Notifications
+●	Dark Mode Dashboard
+________________________________________
+9. Evaluation Criteria
+Criteria	Weightage
+Project Functionality	30%
+AI Response Quality	20%
+Code Quality & Project Structure	15%
+Database & Conversation Management	10%
+Documentation	10%
+UI/UX (Dashboard, if implemented)	10%
+Innovation / Bonus Features	5%
+________________________________________
+10. Submission Details
+Submission Deadline: Sunday, 12 July 2026 – 11:59 PM
+Each submission should include:
+●	GitHub Repository Link
+●	Project Documentation (PDF)
+●	Demo Video
+●	Live Demo Link (Optional)
+●	Setup Instructions
+Late submissions may not be accepted unless prior approval has been obtained.
+________________________________________
+Expected Outcome
+By the end of this project, the intern should have developed a functional AI Personal WhatsApp Executive Assistant capable of understanding conversations, answering business-related questions, scheduling meetings, maintaining conversation history, and assisting with routine communication using modern AI technologies and free-tier APIs wherever possible.
+The final solution should be clean, modular, well-documented, and designed with scalability in mind so that additional features can be integrated in the future.
+
