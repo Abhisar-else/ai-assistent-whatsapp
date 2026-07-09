@@ -1,0 +1,19 @@
+# secrets — never commit
+.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# db + logs (generated at runtime)
+database/*.db
+database/*.db-journal
+logs/*.log
+
+# os/editor
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Positiveway · Assistant Console</title>
+<link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <span class="mark">●</span>
+    <h1>Positiveway <span style="color:var(--paper-dim); font-weight:400;">/ Assistant Console</span></h1>
+  </div>
+  <div class="keybox">
+    <span class="status-dot"></span>
+    <input id="key-input" type="password" placeholder="Admin key" autocomplete="off">
+    <button id="key-save">Connect</button>
+  </div>
+</div>
+
+<div id="lock-screen" class="locked">
+  Enter your admin key above to unlock the console.
+  <span class="mono">Set via ADMIN_API_KEY in .env</span>
+</div>
+
+<main id="app-body" style="display:none;">
+
+  <div class="stat-row">
+    <div class="stat-card"><div class="label">Conversations</div><div class="value" id="stat-conversations">—</div></div>
+    <div class="stat-card"><div class="label">Users reached</div><div class="value" id="stat-users">—</div></div>
+    <div class="stat-card"><div class="label">Meetings logged</div><div class="value" id="stat-meetings">—</div></div>
+    <div class="stat-card"><div class="label">Meeting-flow messages</div><div class="value" id="stat-meeting-msgs">—</div></div>
+  </div>
+
+  <div class="relay">
+    <div class="relay-header">
+      <h2>LLM fallback chain</h2>
+      <span>replies served, by tier</span>
+    </div>
+    <div class="relay-chain" id="relay-chain"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Conversations</h2>
+      <div class="toolbar">
+        <input id="conv-search" type="text" placeholder="Search message or reply…">
+        <button id="refresh-btn" class="ghost">Refresh</button>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>User</th><th>Message / Reply</th><th>Intent</th><th>When</th></tr></thead>
+      <tbody id="conv-body"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Meeting requests</h2>
+      <div class="toolbar">
+        <select id="meeting-filter">
+          <option value="">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="confirmed">Confirmed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Name</th><th>Number</th><th>Date / Time</th><th>Purpose</th><th>Status</th></tr></thead>
+      <tbody id="meeting-body"><tr><td colspan="5" class="empty">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Knowledge base</h2>
+      <div class="toolbar">
+        <button id="kb-reload-btn" class="ghost">Reload knowledge base</button>
+        <button id="export-btn">Export conversations CSV</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script src="/static/dashboard.js"></script>
+</body>
+</html>
