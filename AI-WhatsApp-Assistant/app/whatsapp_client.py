@@ -60,9 +60,20 @@ async def _send_via_twilio(to: str, text: str) -> bool:
         return False
 
     url = f"https://api.twilio.com/2010-04-01/Accounts/{settings.TWILIO_ACCOUNT_SID}/Messages.json"
+
+    # TWILIO_WHATSAPP_FROM already includes "whatsapp:+..." — don't double-wrap.
+    from_number = settings.TWILIO_WHATSAPP_FROM
+    if not from_number.startswith("whatsapp:"):
+        from_number = f"whatsapp:{from_number}"
+
+    # `to` may arrive without a leading + (stripped in webhook parsing)
+    to_number = to if to.startswith("+") else f"+{to}"
+    if not to_number.startswith("whatsapp:"):
+        to_number = f"whatsapp:{to_number}"
+
     data = {
-        "From": f"whatsapp:{settings.TWILIO_WHATSAPP_FROM}",
-        "To": f"whatsapp:{to}",
+        "From": from_number,
+        "To": to_number,
         "Body": text,
     }
     auth = (settings.TWILIO_ACCOUNT_SID, settings.TWILIO_AUTH_TOKEN)
