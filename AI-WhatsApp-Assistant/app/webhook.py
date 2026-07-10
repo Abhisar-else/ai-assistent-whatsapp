@@ -1,21 +1,20 @@
 """
-WhatsApp webhook (Meta Cloud API).
+WhatsApp webhook — accepts both Meta Cloud API (JSON) and Twilio Sandbox
+(form-encoded) payload shapes on the same route, branching on Content-Type.
 
-GET  /webhook  -> verification handshake Meta calls once when you configure the webhook URL.
-POST /webhook  -> receives incoming messages/status updates.
+GET  /webhook  -> Meta's verification handshake (Twilio has no equivalent step).
+POST /webhook  -> receives incoming messages/status updates from either provider.
 
-Two reliability/security properties that are easy to miss and important in
-production:
-1. Signature verification (X-Hub-Signature-256) — without this, anyone who
-   discovers the webhook URL can POST fake messages. Enforced whenever
-   META_APP_SECRET is configured; skipped with a loud warning otherwise so
-   local/dev testing with plain curl still works.
-2. Fast ack + background processing — Meta expects a 200 within a few
-   seconds or it will retry delivery of the *same* message. Since an LLM
-   call can take longer than that, we ack immediately and do the actual
-   work (LLM call, DB writes, sending the reply) in a background task.
-   Combined with message-id dedup below, this avoids duplicate replies /
-   duplicate meeting rows if Meta does retry anyway.
+Reliability/security properties:
+1. Meta signature verification (X-Hub-Signature-256) — enforced whenever
+   META_APP_SECRET is set; skipped with a loud warning otherwise.
+   Twilio signature verification (X-Twilio-Signature) is NOT implemented —
+   fine for Sandbox/dev testing, add before any real Twilio production use.
+2. Fast ack + background processing — Meta retries webhooks that don't get
+   a fast 200; some LLM calls run longer than that window, so we ack
+   immediately and do the real work in a background task.
+3. Message-id dedup — guards against duplicate replies/meeting rows if a
+   provider retries delivery of the same message.
 """
 import hashlib
 import hmac
@@ -52,9 +51,7 @@ async def verify_webhook(request: Request):
 
 def _signature_valid(raw_body: bytes, signature_header: str | None) -> bool:
     if not settings.META_APP_SECRET:
-        # Not configured (e.g. local dev) — allow through, but this was
-        # already logged loudly at startup (see main.py).
-        return True
+        return True  # not configured (e.g. local dev) — allow through
     if not signature_header or not signature_header.startswith("sha256="):
         return False
     expected = hmac.new(settings.META_APP_SECRET.encode(), raw_body, hashlib.sha256).hexdigest()
@@ -64,11 +61,28 @@ def _signature_valid(raw_body: bytes, signature_header: str | None) -> bool:
 
 @router.post("/webhook")
 async def receive_message(request: Request, background_tasks: BackgroundTasks):
-    """
-    Handle incoming WhatsApp events. Meta's payload shape:
-    entry -> changes -> value -> messages[] (present only for actual user messages;
-    absent for delivery/read status callbacks, which we just acknowledge).
-    """
+    content_type = request.headers.get("content-type", "")
+
+    # --- Twilio Sandbox: form-encoded body, different field names entirely ---
+    if "application/x-www-form-urlencoded" in content_type:
+        form = await request.form()
+        from_raw = form.get("From", "")  # e.g. "whatsapp:+919999999999"
+        user_number = from_raw.removeprefix("whatsapp:").removeprefix("+")
+        body_text = form.get("Body", "")
+        message_id = form.get("MessageSid")
+        sender_name = form.get("ProfileName") or None
+
+        if message_id and not mark_message_processed(message_id):
+            logger.info("Skipping duplicate Twilio delivery of message %s", message_id)
+            return Response(status_code=status.HTTP_200_OK)
+
+        if user_number and body_text:
+            msg = {"id": message_id, "from": user_number, "type": "text", "text": {"body": body_text}}
+            background_tasks.add_task(_process_incoming_message, msg, sender_name)
+
+        return Response(status_code=status.HTTP_200_OK)
+
+    # --- Meta Cloud API: JSON body ---
     raw_body = await request.body()
 
     if not _signature_valid(raw_body, request.headers.get("X-Hub-Signature-256")):
@@ -95,19 +109,14 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
 
                 for msg in messages:
                     message_id = msg.get("id")
-                    # Dedup up front so a Meta retry never gets scheduled twice,
-                    # even if this message_id has no id (defensively processed once).
                     if message_id and not mark_message_processed(message_id):
                         logger.info("Skipping duplicate delivery of message %s", message_id)
                         continue
                     background_tasks.add_task(_process_incoming_message, msg, sender_name)
 
     except Exception:
-        # Never let a malformed/unexpected payload crash the webhook —
-        # Meta will retry aggressively on non-2xx responses.
         logger.exception("Error while scheduling webhook payload for processing")
 
-    # Ack immediately; the real work happens in the background task above.
     return Response(status_code=status.HTTP_200_OK)
 
 
@@ -117,7 +126,6 @@ async def _process_incoming_message(msg: dict, sender_name: str | None):
         msg_type = msg.get("type")
 
         if msg_type != "text":
-            # Day 3+/bonus: handle audio, images, etc. For now, politely decline.
             text_in = f"[unsupported message type: {msg_type}]"
             reply_text = "I can currently only read text messages — could you type that as text?"
             if user_number:
@@ -130,14 +138,10 @@ async def _process_incoming_message(msg: dict, sender_name: str | None):
         if not user_number or not text_in:
             return
 
-        # Cap message length fed into the engine/LLM — cheap abuse & cost control.
-        text_in = text_in[:2000]
+        text_in = text_in[:2000]  # cheap abuse/cost control
 
         upsert_user(user_number, sender_name)
 
-        # handle_message() makes blocking HTTP calls to LLM providers — run it
-        # off the event loop so one slow reply doesn't stall every other
-        # concurrent webhook request being handled by this process.
         result = await to_thread(handle_message, user_number, text_in)
 
         log_conversation(
@@ -151,6 +155,4 @@ async def _process_incoming_message(msg: dict, sender_name: str | None):
         await send_whatsapp_message(user_number, result.text)
 
     except Exception:
-        # This runs in a background task after the webhook already returned
-        # 200 to Meta, so there's no request left to fail — just log loudly.
         logger.exception("Error while processing message in background task")
