@@ -163,3 +163,15 @@ def update_meeting_session(user_number: str, field: str, value: str, next_stage:
 def clear_meeting_session(user_number: str):
     with get_connection() as conn:
         conn.execute("DELETE FROM meeting_sessions WHERE user_number = ?", (user_number,))
+
+
+# ---------- webhook dedup ----------
+
+def mark_message_processed(message_id: str) -> bool:
+    """Return True if first delivery (process it), False if duplicate (skip)."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO processed_messages (message_id) VALUES (?)",
+            (message_id,),
+        )
+        return cur.rowcount > 0
