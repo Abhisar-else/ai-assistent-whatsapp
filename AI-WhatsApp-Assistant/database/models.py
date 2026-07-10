@@ -66,4 +66,11 @@ CREATE TABLE IF NOT EXISTS meeting_sessions (
     stage TEXT NOT NULL DEFAULT 'name',   -- name -> date -> time -> purpose -> done
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Guards against Meta re-delivering the same webhook message (which it does
+-- if it doesn't receive a fast 200) causing duplicate replies/meeting rows.
+CREATE TABLE IF NOT EXISTS processed_messages (
+    message_id TEXT PRIMARY KEY,
+    processed_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
