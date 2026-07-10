@@ -201,3 +201,27 @@ Expected Outcome
 By the end of this project, the intern should have developed a functional AI Personal WhatsApp Executive Assistant capable of understanding conversations, answering business-related questions, scheduling meetings, maintaining conversation history, and assisting with routine communication using modern AI technologies and free-tier APIs wherever possible.
 The final solution should be clean, modular, well-documented, and designed with scalability in mind so that additional features can be integrated in the future.
 
+ $body = @{
+>>   entry = @(
+>>     @{
+>>       changes = @(
+>>         @{
+>>           value = @{
+>>             contacts = @(
+>>               @{ profile = @{ name = "Test User" } }
+>>             )
+>>             messages = @(
+>>               @{
+>>                 from = "919999999999"
+>>                 type = "text"
+>>                 text = @{ body = "What services do you offer?" }
+>>               }
+>>             )
+>>           }
+>>         }
+>>       )
+>>     }
+>>   )
+>> } | ConvertTo-Json -Depth 20
+>> 
+>> Invoke-RestMethod -Uri "http://localhost:8000/webhook" -Method Post -Body $body -ContentType "application/json"
