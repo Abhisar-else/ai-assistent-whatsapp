@@ -191,3 +191,5 @@ walkthrough.
 
 Python · FastAPI · SQLite · Google Gemini API (+ Groq/OpenRouter fallback)
 · Meta WhatsApp Cloud API (Twilio Sandbox fallback)
+
+admin key (kX9vTm2QpLwR7nZsA4bYcDfEgHjK6uWx)
