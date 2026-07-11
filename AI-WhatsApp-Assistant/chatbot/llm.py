@@ -50,7 +50,8 @@ def _build_prompt(message: str, kb_context: str, history: list[dict]) -> str:
         convo = "\n".join(f"User: {h['user_message']}\nAssistant: {h['ai_response']}" for h in history)
         parts.append(f"\nRecent conversation history:\n{convo}")
 
-    parts.append(f"\nUser's new message: {message}\nAssistant reply:")
+    
+     parts.append(f"\n<user_message>\n{message}\n</user_message>\nAssistant reply:")
     return "\n".join(parts)
 
 
