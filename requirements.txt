@@ -7,10 +7,3 @@ google-generativeai==0.8.3
 python-multipart==0.0.9
 
 
-[x] Fix 1 — Change admin key from admin123 to random key
-[ ] Fix 2 — Add Twilio webhook signature verification
-[ ] Fix 3 — Replace assert with if in update_meeting_session
-[ ] Fix 4 — Add input length caps to meeting flow fields
-[ ] Fix 5 — Add LLM prompt injection guardrails
-[ ] Fix 6 — Add CORS middleware
-
