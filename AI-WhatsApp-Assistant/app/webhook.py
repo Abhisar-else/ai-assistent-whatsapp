@@ -6,16 +6,18 @@ GET  /webhook  -> Meta's verification handshake (Twilio has no equivalent step).
 POST /webhook  -> receives incoming messages/status updates from either provider.
 
 Reliability/security properties:
-1. Meta signature verification (X-Hub-Signature-256) — enforced whenever
-   META_APP_SECRET is set; skipped with a loud warning otherwise.
-   Twilio signature verification (X-Twilio-Signature) is NOT implemented —
-   fine for Sandbox/dev testing, add before any real Twilio production use.
+1. Signature verification on both channels — Meta's X-Hub-Signature-256
+   (enforced whenever META_APP_SECRET is set) and Twilio's X-Twilio-Signature
+   (enforced whenever TWILIO_AUTH_TOKEN is set). Either is skipped with a
+   loud warning if its secret isn't configured, so local/dev testing with
+   plain curl still works.
 2. Fast ack + background processing — Meta retries webhooks that don't get
    a fast 200; some LLM calls run longer than that window, so we ack
    immediately and do the real work in a background task.
 3. Message-id dedup — guards against duplicate replies/meeting rows if a
    provider retries delivery of the same message.
 """
+import base64
 import hashlib
 import hmac
 import json
@@ -59,6 +61,30 @@ def _signature_valid(raw_body: bytes, signature_header: str | None) -> bool:
     return hmac.compare_digest(expected, provided)
 
 
+def _twilio_signature_valid(url: str, form_params: dict, signature_header: str | None) -> bool:
+    """
+    Twilio's documented algorithm: HMAC-SHA1 over the full request URL with
+    every POST param (sorted by name) appended directly as `key+value`,
+    keyed by the Auth Token, then base64-encoded.
+
+    NOTE: `url` must exactly match what Twilio thinks it POSTed to, including
+    scheme. Behind ngrok or a Render/Railway proxy, uvicorn needs to be told
+    to trust forwarded headers or it may see `http://` internally even
+    though Twilio called `https://` — run with
+    `uvicorn main:app --proxy-headers --forwarded-allow-ips='*'` or this
+    will fail signature checks even with a correct Auth Token.
+    """
+    if not settings.TWILIO_AUTH_TOKEN:
+        return True  # not configured (e.g. local dev) — allow through
+    if not signature_header:
+        return False
+    data = url + "".join(f"{k}{v}" for k, v in sorted(form_params.items()))
+    expected = base64.b64encode(
+        hmac.new(settings.TWILIO_AUTH_TOKEN.encode(), data.encode(), hashlib.sha1).digest()
+    ).decode()
+    return hmac.compare_digest(expected, signature_header)
+
+
 @router.post("/webhook")
 async def receive_message(request: Request, background_tasks: BackgroundTasks):
     content_type = request.headers.get("content-type", "")
@@ -66,6 +92,12 @@ async def receive_message(request: Request, background_tasks: BackgroundTasks):
     # --- Twilio Sandbox: form-encoded body, different field names entirely ---
     if "application/x-www-form-urlencoded" in content_type:
         form = await request.form()
+        form_dict = dict(form)
+
+        if not _twilio_signature_valid(str(request.url), form_dict, request.headers.get("X-Twilio-Signature")):
+            logger.warning("Twilio webhook signature verification failed — rejecting request.")
+            return Response(status_code=status.HTTP_403_FORBIDDEN)
+
         from_raw = form.get("From", "")  # e.g. "whatsapp:+919999999999"
         user_number = from_raw.removeprefix("whatsapp:").removeprefix("+")
         body_text = form.get("Body", "")

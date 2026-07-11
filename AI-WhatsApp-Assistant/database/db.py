@@ -149,7 +149,7 @@ def start_meeting_session(user_number: str):
 
 def update_meeting_session(user_number: str, field: str, value: str, next_stage: str):
     if field not in {"name", "preferred_date", "preferred_time", "purpose"}:
-        raise ValueError(f"Invalid meeting session field: {field!r}")
+         raise ValueError(f"Invalid meeting session field: {field!r}")
     with get_connection() as conn:
         conn.execute(
             f"""

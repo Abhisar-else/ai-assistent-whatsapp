@@ -9,14 +9,16 @@ internal tool built in a 4-day sprint. Swap for real auth before any
 multi-admin or public deployment.
 """
 import csv
+import hmac
 import io
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel
 
 from chatbot.knowledge_base import load_knowledge_base
 from config.settings import settings
-from database.db import get_connection, list_meetings, search_conversations
+from database.db import get_connection, list_meetings, search_conversations, set_meeting_status
 from models.schemas import (
     ConversationsResponse,
     KnowledgeBaseReloadResponse,
@@ -28,7 +30,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 def require_admin(x_admin_key: str = Header(default="")):
-    if not x_admin_key or x_admin_key != settings.ADMIN_API_KEY:
+    if not x_admin_key or not hmac.compare_digest(x_admin_key, settings.ADMIN_API_KEY):
         raise HTTPException(status_code=401, detail="Invalid or missing X-Admin-Key header")
 
 
@@ -55,6 +57,21 @@ async def get_meetings(status: str | None = Query(default=None, description="pen
     return {"results": list_meetings(status=status)}
 
 
+class MeetingStatusUpdate(BaseModel):
+    status: str  # pending | confirmed | cancelled
+
+
+@router.patch("/meetings/{meeting_id}", dependencies=[Depends(require_admin)])
+async def update_meeting_status(meeting_id: int, body: MeetingStatusUpdate):
+    """Mark a meeting request confirmed/cancelled/pending after admin follow-up."""
+    if body.status not in {"pending", "confirmed", "cancelled"}:
+        raise HTTPException(status_code=422, detail="status must be one of: pending, confirmed, cancelled")
+    updated = set_meeting_status(meeting_id, body.status)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"No meeting with id {meeting_id}")
+    return {"id": meeting_id, "status": body.status}
+
+
 @router.get("/export/conversations", dependencies=[Depends(require_admin)])
 async def export_conversations():
     """Export all conversation logs as a downloadable CSV."""
@@ -63,13 +80,24 @@ async def export_conversations():
     if rows:
         writer = csv.DictWriter(buffer, fieldnames=list(rows[0].keys()))
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows({k: _csv_safe(v) for k, v in row.items()} for row in rows)
     buffer.seek(0)
     return StreamingResponse(
         iter([buffer.getvalue()]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=conversations_export.csv"},
     )
+
+
+def _csv_safe(value):
+    """
+    Neutralize CSV/formula injection: a WhatsApp message that happens to
+    start with =, +, -, or @ would otherwise be interpreted as a formula
+    by Excel/Sheets when an admin opens the exported file.
+    """
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@"):
+        return "'" + value
+    return value
 
 
 @router.post("/knowledge-base/reload", response_model=KnowledgeBaseReloadResponse, dependencies=[Depends(require_admin)])
@@ -102,7 +130,6 @@ async def get_stats():
         "total_conversations": total_conversations,
         "total_users": total_users,
         "total_meetings": total_meetings,
-        # defensively drop any NULL keys (shouldn't occur — intent/provider are always set)
         "by_provider": {r["llm_provider"]: r["c"] for r in provider_rows if r["llm_provider"] is not None},
         "by_intent": {r["intent"]: r["c"] for r in intent_rows if r["intent"] is not None},
     }

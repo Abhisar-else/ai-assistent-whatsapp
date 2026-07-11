@@ -34,6 +34,16 @@ async def lifespan(app: FastAPI):
     init_db()
     load_knowledge_base()
     logger.info("%s starting up (env=%s, db=%s)", settings.APP_NAME, settings.ENV, settings.DATABASE_PATH)
+    if not settings.META_APP_SECRET:
+        logger.warning(
+            "META_APP_SECRET is not set — webhook signature verification is DISABLED. "
+            "Anyone who finds this webhook URL can send it fake messages. "
+            "Set META_APP_SECRET before exposing this beyond local testing."
+        )
+    if settings.ADMIN_API_KEY == "change-me":
+        logger.warning("ADMIN_API_KEY is still the default 'change-me' — set a real secret in .env.")
+
+    
     yield
     logger.info("Shutting down.")
 
