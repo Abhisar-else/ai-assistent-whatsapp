@@ -28,6 +28,12 @@ _NEXT_STAGE = {
     "preferred_date": "preferred_time",
     "preferred_time": "purpose",
     "purpose": "done",
+}# Name/date/time are short answers; purpose gets more room since it's free text.
+_FIELD_MAX_LENGTH = {
+    "name": 100,
+    "preferred_date": 100,
+    "preferred_time": 100,
+    "purpose": 300,
 }
 
 
@@ -55,7 +61,7 @@ def continue_flow(user_number: str, message_text: str) -> tuple[str, bool]:
         return start_flow(user_number), False
 
     stage = session["stage"]
-    value = message_text.strip()
+    value = message_text.strip()[:_FIELD_MAX_LENGTH[stage]]
 
     if not value:
         return "Sorry, I didn't catch that — could you send that again?", False
