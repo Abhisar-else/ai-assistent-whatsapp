@@ -4,7 +4,7 @@ An AI-powered WhatsApp assistant that answers business/internship questions
 from a knowledge base, holds context across a conversation, schedules
 meetings, and gives an admin visibility into everything happening.
 
-Built for the Positiveway Solutions internship 4-day sprint (8–12 July 2026).
+Built for the Positiveway Solutions internship 
 
 ## How it works
 
@@ -12,8 +12,8 @@ Built for the Positiveway Solutions internship 4-day sprint (8–12 July 2026).
 WhatsApp user
    │
    ▼
-Meta WhatsApp Cloud API  ──POST──▶  /webhook  (FastAPI)
-                                       │
+Meta Cloud API (JSON) or Twilio Sandbox (form) ──POST──▶ /webhook (FastAPI)
+                                       │        (signature verified either way)
                          ┌─────────────┼──────────────┐
                          ▼             ▼               ▼
                  meeting_flow.py   intents.py    knowledge_base.py
@@ -26,7 +26,7 @@ Meta WhatsApp Cloud API  ──POST──▶  /webhook  (FastAPI)
                     SQLite (conversations, meetings, users) ◀──log every turn
                          │
                          ▼
-                 /admin/* endpoints (history, search, meetings, stats, export)
+                 /admin/* endpoints + dashboard (history, search, meetings, stats, export)
 ```
 
 ## Project structure
@@ -53,6 +53,9 @@ AI-WhatsApp-Assistant/
 │   └── faq.json
 ├── config/settings.py       # loads .env, single source of config
 ├── logs/app.log              # runtime logs (generated)
+├── templates/admin_dashboard.html  # admin dashboard shell
+├── static/dashboard.js, dashboard.css  # admin dashboard client
+├── diagnose.py                 # standalone LLM-provider troubleshooting script
 ├── main.py                    # FastAPI app entrypoint
 ├── requirements.txt
 └── .env.example
@@ -86,7 +89,9 @@ cp .env.example .env            # then fill in the values below
 | `GROQ_API_KEY` *(optional fallback)* | [console.groq.com](https://console.groq.com/) → API Keys (free tier) |
 | `OPENROUTER_API_KEY` *(optional fallback)* | [openrouter.ai](https://openrouter.ai/) → Keys (free models) |
 | `META_WHATSAPP_TOKEN`, `META_PHONE_NUMBER_ID` | Meta App → WhatsApp → API Setup (see below) |
+| `META_APP_SECRET` | Meta App → Settings → Basic → App Secret. **Required for production** — without it, webhook signature verification is disabled and anyone who finds your webhook URL could send it fake messages. Safe to leave blank only for local/dev testing. |
 | `META_VERIFY_TOKEN` | Any random string you choose — used only for the handshake |
+| `TWILIO_AUTH_TOKEN` | Twilio Console → Account → Auth Token. Also required to verify `X-Twilio-Signature` on incoming webhooks if you're using Twilio as your channel — same "disabled if blank" behavior as `META_APP_SECRET`. |
 | `ADMIN_API_KEY` | Any random string you choose — required in `X-Admin-Key` header for `/admin/*` |
 
 `.env` is git-ignored — never commit real keys.
@@ -116,14 +121,24 @@ cp .env.example .env            # then fill in the values below
 > The Meta test token expires every 24 hours. Refresh it from the same API
 > Setup page — no code changes needed, just update `.env` and restart.
 
-### Fallback: Twilio WhatsApp Sandbox
+### Twilio WhatsApp Sandbox (verified working channel)
 
-If Meta setup is slow to approve, set `WHATSAPP_PROVIDER=twilio` in `.env`,
-fill in `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`
-from the [Twilio Console → WhatsApp Sandbox](https://console.twilio.com/),
-and point the Sandbox's "when a message comes in" webhook at your
-`/webhook` ngrok URL (Twilio uses form-encoded POSTs — see note in
-`app/webhook.py` if you need to adapt parsing).
+Set `WHATSAPP_PROVIDER=twilio` in `.env`, fill in `TWILIO_ACCOUNT_SID`,
+`TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM` from the
+[Twilio Console → WhatsApp Sandbox](https://console.twilio.com/), and point
+the Sandbox's "when a message comes in" webhook at your `/webhook` URL
+(ngrok locally, or your deployed URL in production).
+
+From your own WhatsApp, message the Sandbox number with the `join <code>`
+phrase shown on that Twilio Console page once to opt in — after that,
+message it normally.
+
+Twilio requests are verified against `X-Twilio-Signature` using
+`TWILIO_AUTH_TOKEN` (skipped with a warning if unset, same as Meta). One
+gotcha: this check needs the exact URL Twilio POSTed to, including scheme —
+behind ngrok/Render's proxy, run uvicorn with
+`--proxy-headers --forwarded-allow-ips='*'` (see section 8) or signature
+checks can fail even with a correct token.
 
 ## 4. Run locally
 
@@ -158,9 +173,21 @@ All endpoints require header `X-Admin-Key: <ADMIN_API_KEY>`.
 |---|---|
 | `GET /admin/conversations?query=&user_number=&limit=` | View / search conversation history |
 | `GET /admin/meetings?status=` | View meeting requests |
+| `PATCH /admin/meetings/{id}` | Update a meeting's status (`pending`/`confirmed`/`cancelled`) — body: `{"status": "confirmed"}` |
 | `GET /admin/export/conversations` | Download all conversation logs as CSV |
 | `POST /admin/knowledge-base/reload` | Reload KB from files without restarting |
 | `GET /admin/stats` | Totals + usage by LLM provider + by intent |
+
+## 6a. Security & reliability notes
+
+- **Webhook signature verification**: incoming requests are checked against `X-Hub-Signature-256` (Meta, using `META_APP_SECRET`) or `X-Twilio-Signature` (Twilio, using `TWILIO_AUTH_TOKEN`) — HMAC-SHA256 and HMAC-SHA1 respectively, compared with constant-time comparison. Either check is skipped with a loud warning if its secret isn't set, so local testing with curl/Postman still works.
+- **Fast ack + background processing**: the webhook responds `200` immediately and processes the message (LLM call, DB writes, sending the reply) in a background task, off the event loop via a worker thread. This matters because both Meta and Twilio retry a webhook delivery if they don't get a fast response, and an LLM call can take longer than that window.
+- **Message deduplication**: each incoming message's provider-assigned ID is recorded, so a retried delivery is silently skipped instead of generating a duplicate reply or duplicate meeting entry.
+- **CSV export sanitization**: any cell starting with `=`, `+`, `-`, or `@` is prefixed with `'` before export, so a crafted WhatsApp message can't execute as a formula if the CSV is opened in Excel/Sheets.
+- **Meeting field length caps**: name/date/time are capped at 100 characters, purpose at 300 — independent of the general 2000-character message cap, since these are meant to be short answers.
+- **Prompt injection mitigation**: the LLM system prompt wraps each user message in `<user_message>` tags with explicit instructions to treat its contents as data, not commands, and to never reveal the system prompt. This reduces risk; it doesn't eliminate it — no prompt-only defense fully can against a determined attacker.
+- **Prompt injection mitigation**: the user's message is wrapped in `<user_message>` tags with an explicit system-prompt instruction to treat its contents as data, never as instructions, and to never reveal the system prompt. This reduces but doesn't eliminate prompt-injection risk — no prompt-only defense fully can.
+- **Admin key comparison** uses `hmac.compare_digest` (constant-time) rather than `==`, avoiding a timing side-channel.
 
 ## 7. LLM fallback chain
 
@@ -176,20 +203,30 @@ logged per-conversation (see `/admin/stats`).
 Any Python host works (Render, Railway, Fly.io). Example for Render/Railway:
 
 - Build command: `pip install -r requirements.txt`
-- Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+- Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips='*'`
+  (the proxy flags matter — without them, Twilio signature verification can fail behind a reverse proxy even with a correct `TWILIO_AUTH_TOKEN`)
 - Set the same environment variables from `.env` in the host's dashboard.
-- Update the Meta webhook Callback URL to the deployed URL once live.
+- Update the Meta webhook Callback URL, or the Twilio Sandbox webhook, to the deployed URL once live.
+- Free tiers on Render/Railway spin down after inactivity and take ~30s to wake on the next request — send a test message a few minutes before a live demo so it's already warm.
 
-## 9. Testing
+## 9. Testing & troubleshooting
 
-There's no separate test suite yet — the flows above (webhook verification,
-message handling, meeting slot-filling, admin auth) were manually verified
-end-to-end during development. See the commit history / demo video for a
-walkthrough.
+There's no automated test suite yet — the flows (webhook verification on
+both providers, message handling, meeting slot-filling, admin auth,
+signature checks, dedup) were manually verified end-to-end during
+development, including live messages through the Twilio Sandbox with real
+replies from Groq.
+
+**`diagnose.py`** is included at the project root for troubleshooting LLM
+provider issues without digging through logs — run `python diagnose.py`
+from the project folder. It confirms your API keys actually loaded from
+`.env`, then calls Gemini and Groq directly and prints either a successful
+reply or the exact exception (invalid key, wrong/deprecated model name,
+quota exceeded, network error), so you know precisely which provider is
+failing and why instead of just seeing it fall through to the heuristic
+responder.
 
 ## Tech stack
 
 Python · FastAPI · SQLite · Google Gemini API (+ Groq/OpenRouter fallback)
 · Meta WhatsApp Cloud API (Twilio Sandbox fallback)
-
-admin key (kX9vTm2QpLwR7nZsA4bYcDfEgHjK6uWx)
