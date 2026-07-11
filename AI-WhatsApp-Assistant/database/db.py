@@ -149,7 +149,7 @@ def start_meeting_session(user_number: str):
 
 def update_meeting_session(user_number: str, field: str, value: str, next_stage: str):
     if field not in {"name", "preferred_date", "preferred_time", "purpose"}:
-    raise ValueError(f"Invalid meetingsession field: {field!r}")
+        raise ValueError(f"Invalid meeting session field: {field!r}")
     with get_connection() as conn:
         conn.execute(
             f"""
@@ -166,16 +166,7 @@ def clear_meeting_session(user_number: str):
         conn.execute("DELETE FROM meeting_sessions WHERE user_number = ?", (user_number,))
 
 
-# ---------- webhook dedup ----------
 
-def mark_message_processed(message_id: str) -> bool:
-    """Return True if first delivery (process it), False if duplicate (skip)."""
-    with get_connection() as conn:
-        cur = conn.execute(
-            "INSERT OR IGNORE INTO processed_messages (message_id) VALUES (?)",
-            (message_id,),
-        )
-        return cur.rowcount > 0
 # ---------- processed_messages (dedup Meta webhook retries) ----------
 
 def mark_message_processed(message_id: str) -> bool:
