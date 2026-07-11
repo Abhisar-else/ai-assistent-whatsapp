@@ -148,7 +148,8 @@ def start_meeting_session(user_number: str):
 
 
 def update_meeting_session(user_number: str, field: str, value: str, next_stage: str):
-    assert field in {"name", "preferred_date", "preferred_time", "purpose"}
+    if field not in {"name", "preferred_date", "preferred_time", "purpose"}:
+    raise ValueError(f"Invalid meetingsession field: {field!r}")
     with get_connection() as conn:
         conn.execute(
             f"""
@@ -173,5 +174,28 @@ def mark_message_processed(message_id: str) -> bool:
         cur = conn.execute(
             "INSERT OR IGNORE INTO processed_messages (message_id) VALUES (?)",
             (message_id,),
+        )
+        return cur.rowcount > 0
+# ---------- processed_messages (dedup Meta webhook retries) ----------
+
+def mark_message_processed(message_id: str) -> bool:
+    """Returns True if this message_id hasn't been seen before (safe to
+    process), False if it's a duplicate delivery that should be skipped."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO processed_messages (message_id) VALUES (?)",
+            (message_id,),
+        )
+        return cur.rowcount > 0
+
+
+# ---------- meeting status updates ----------
+
+def set_meeting_status(meeting_id: int, status: str) -> bool:
+    """Returns True if a row was actually updated (meeting_id existed)."""
+    with get_connection() as conn:
+        cur = conn.execute(
+            "UPDATE meetings SET status = ? WHERE id = ?",
+            (status, meeting_id),
         )
         return cur.rowcount > 0
