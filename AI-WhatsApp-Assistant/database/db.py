@@ -1,55 +1,85 @@
 """
-Lightweight SQLite access layer. No ORM — the schema is small enough that
-raw SQL keeps things transparent and easy for an admin to inspect.
+Postgres access layer (psycopg2). Every query uses %s placeholders (not
+SQLite's ?) and rows come back as real dicts via RealDictCursor.
+
+_ConnWrapper below adds .execute()/.executemany()/.executescript() directly
+on the connection object, mirroring sqlite3.Connection's convenience API —
+this let the rest of the codebase (admin.py, knowledge_base.py) keep calling
+conn.execute(...) unchanged rather than needing an explicit cursor everywhere.
 """
-import sqlite3
+import logging
 from contextlib import contextmanager
-from pathlib import Path
+
+import psycopg2
+import psycopg2.extras
 
 from config.settings import settings
 from database.models import SCHEMA
 
+logger = logging.getLogger("db")
 
-def _ensure_parent_dir():
-    Path(settings.DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
+
+class _ConnWrapper:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql, params=None):
+        cur = self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(sql, params or ())
+        return cur
+
+    def executemany(self, sql, seq_of_params):
+        cur = self._conn.cursor()
+        cur.executemany(sql, list(seq_of_params))
+        return cur
+
+    def executescript(self, sql):
+        cur = self._conn.cursor()
+        cur.execute(sql)
+        return cur
+
+    def commit(self):
+        self._conn.commit()
+
+    def close(self):
+        self._conn.close()
 
 
 @contextmanager
 def get_connection():
-    _ensure_parent_dir()
-    conn = sqlite3.connect(settings.DATABASE_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
+    if not settings.DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL is not set. This app requires Postgres — "
+            "see README.md 'Database (Postgres)' for how to create a free "
+            "instance on Render and set this variable."
+        )
+    conn = psycopg2.connect(settings.DATABASE_URL)
+    wrapper = _ConnWrapper(conn)
     try:
-        yield conn
-        conn.commit()
+        yield wrapper
+        wrapper.commit()
     finally:
-        conn.close()
+        wrapper.close()
 
 
 def init_db():
-    """Create tables if they don't exist. Safe to call on every startup."""
     with get_connection() as conn:
         conn.executescript(SCHEMA)
 
-
-# ---------- users ----------
 
 def upsert_user(phone_number: str, name: str | None = None):
     with get_connection() as conn:
         conn.execute(
             """
             INSERT INTO users (phone_number, name)
-            VALUES (?, ?)
+            VALUES (%s, %s)
             ON CONFLICT(phone_number) DO UPDATE SET
-                last_active = datetime('now'),
-                name = COALESCE(excluded.name, users.name)
+                last_active = to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
+                name = COALESCE(EXCLUDED.name, users.name)
             """,
             (phone_number, name),
         )
 
-
-# ---------- conversations ----------
 
 def log_conversation(user_number: str, user_message: str, ai_response: str,
                       intent: str | None = None, llm_provider: str | None = None):
@@ -57,22 +87,21 @@ def log_conversation(user_number: str, user_message: str, ai_response: str,
         conn.execute(
             """
             INSERT INTO conversations (user_number, user_message, ai_response, intent, llm_provider)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
             """,
             (user_number, user_message, ai_response, intent, llm_provider),
         )
 
 
 def get_recent_conversation(user_number: str, limit: int = 10):
-    """Most recent N turns for a user, oldest first (for LLM context)."""
     with get_connection() as conn:
         rows = conn.execute(
             """
             SELECT user_message, ai_response, timestamp
             FROM conversations
-            WHERE user_number = ?
+            WHERE user_number = %s
             ORDER BY id DESC
-            LIMIT ?
+            LIMIT %s
             """,
             (user_number, limit),
         ).fetchall()
@@ -83,19 +112,17 @@ def search_conversations(query: str | None = None, user_number: str | None = Non
     sql = "SELECT * FROM conversations WHERE 1=1"
     params = []
     if user_number:
-        sql += " AND user_number = ?"
+        sql += " AND user_number = %s"
         params.append(user_number)
     if query:
-        sql += " AND (user_message LIKE ? OR ai_response LIKE ?)"
+        sql += " AND (user_message ILIKE %s OR ai_response ILIKE %s)"
         params.extend([f"%{query}%", f"%{query}%"])
-    sql += " ORDER BY id DESC LIMIT ?"
+    sql += " ORDER BY id DESC LIMIT %s"
     params.append(limit)
     with get_connection() as conn:
         rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
 
-
-# ---------- meetings ----------
 
 def create_meeting(user_number: str, name: str | None, preferred_date: str | None,
                     preferred_time: str | None, purpose: str | None):
@@ -103,32 +130,31 @@ def create_meeting(user_number: str, name: str | None, preferred_date: str | Non
         cur = conn.execute(
             """
             INSERT INTO meetings (user_number, name, preferred_date, preferred_time, purpose)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (user_number, name, preferred_date, preferred_time, purpose),
         )
-        return cur.lastrowid
+        return cur.fetchone()["id"]
 
 
 def list_meetings(status: str | None = None, limit: int = 200):
     sql = "SELECT * FROM meetings WHERE 1=1"
     params = []
     if status:
-        sql += " AND status = ?"
+        sql += " AND status = %s"
         params.append(status)
-    sql += " ORDER BY id DESC LIMIT ?"
+    sql += " ORDER BY id DESC LIMIT %s"
     params.append(limit)
     with get_connection() as conn:
         rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
 
 
-# ---------- meeting_sessions (slot-filling state machine) ----------
-
 def get_meeting_session(user_number: str):
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT * FROM meeting_sessions WHERE user_number = ?", (user_number,)
+            "SELECT * FROM meeting_sessions WHERE user_number = %s", (user_number,)
         ).fetchone()
     return dict(row) if row else None
 
@@ -138,10 +164,11 @@ def start_meeting_session(user_number: str):
         conn.execute(
             """
             INSERT INTO meeting_sessions (user_number, stage)
-            VALUES (?, 'name')
+            VALUES (%s, 'name')
             ON CONFLICT(user_number) DO UPDATE SET
                 stage = 'name', name = NULL, preferred_date = NULL,
-                preferred_time = NULL, purpose = NULL, updated_at = datetime('now')
+                preferred_time = NULL, purpose = NULL,
+                updated_at = to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')
             """,
             (user_number,),
         )
@@ -149,13 +176,14 @@ def start_meeting_session(user_number: str):
 
 def update_meeting_session(user_number: str, field: str, value: str, next_stage: str):
     if field not in {"name", "preferred_date", "preferred_time", "purpose"}:
-         raise ValueError(f"Invalid meeting session field: {field!r}")
+        raise ValueError(f"Invalid meeting session field: {field!r}")
     with get_connection() as conn:
         conn.execute(
             f"""
             UPDATE meeting_sessions
-            SET {field} = ?, stage = ?, updated_at = datetime('now')
-            WHERE user_number = ?
+            SET {field} = %s, stage = %s,
+                updated_at = to_char(CURRENT_TIMESTAMP AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')
+            WHERE user_number = %s
             """,
             (value, next_stage, user_number),
         )
@@ -163,30 +191,22 @@ def update_meeting_session(user_number: str, field: str, value: str, next_stage:
 
 def clear_meeting_session(user_number: str):
     with get_connection() as conn:
-        conn.execute("DELETE FROM meeting_sessions WHERE user_number = ?", (user_number,))
+        conn.execute("DELETE FROM meeting_sessions WHERE user_number = %s", (user_number,))
 
-
-
-# ---------- processed_messages (dedup Meta webhook retries) ----------
 
 def mark_message_processed(message_id: str) -> bool:
-    """Returns True if this message_id hasn't been seen before (safe to
-    process), False if it's a duplicate delivery that should be skipped."""
     with get_connection() as conn:
         cur = conn.execute(
-            "INSERT OR IGNORE INTO processed_messages (message_id) VALUES (?)",
+            "INSERT INTO processed_messages (message_id) VALUES (%s) ON CONFLICT (message_id) DO NOTHING",
             (message_id,),
         )
         return cur.rowcount > 0
 
 
-# ---------- meeting status updates ----------
-
 def set_meeting_status(meeting_id: int, status: str) -> bool:
-    """Returns True if a row was actually updated (meeting_id existed)."""
     with get_connection() as conn:
         cur = conn.execute(
-            "UPDATE meetings SET status = ? WHERE id = ?",
+            "UPDATE meetings SET status = %s WHERE id = %s",
             (status, meeting_id),
         )
         return cur.rowcount > 0

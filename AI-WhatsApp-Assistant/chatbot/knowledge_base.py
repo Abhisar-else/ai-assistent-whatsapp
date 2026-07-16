@@ -84,7 +84,7 @@ def load_knowledge_base():
     with get_connection() as conn:
         conn.execute("DELETE FROM knowledge_base")
         conn.executemany(
-            "INSERT INTO knowledge_base (topic, content, source_file) VALUES (?, ?, ?)",
+            "INSERT INTO knowledge_base (topic, content, source_file) VALUES (%s, %s, %s)",
             entries,
         )
 

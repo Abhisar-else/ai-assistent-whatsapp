@@ -17,8 +17,8 @@ class Settings:
     ENV: str = os.getenv("ENV", "development")
     BASE_DIR: Path = BASE_DIR
 
-    # --- Database ---
-    DATABASE_PATH: str = os.getenv("DATABASE_PATH", str(BASE_DIR / "database" / "app.db"))
+    # --- Database (postgres) ---
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "")
 
     # --- Knowledge base ---
     KNOWLEDGE_BASE_DIR: str = os.getenv("KNOWLEDGE_BASE_DIR", str(BASE_DIR / "knowledge_base"))

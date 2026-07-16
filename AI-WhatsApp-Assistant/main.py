@@ -33,7 +33,8 @@ logger = logging.getLogger("main")
 async def lifespan(app: FastAPI):
     init_db()
     load_knowledge_base()
-    logger.info("%s starting up (env=%s, db=%s)", settings.APP_NAME, settings.ENV, settings.DATABASE_PATH)
+    db_host = settings.DATABASE_URL.split("@")[-1].split("/")[0] if settings.DATABASE_URL else "NOT CONFIGURED"
+    logger.info("%s starting up (env=%s, db_host=%s)", settings.APP_NAME, settings.ENV, db_host)
     if not settings.META_APP_SECRET:
         logger.warning(
             "META_APP_SECRET is not set — webhook signature verification is DISABLED. "
